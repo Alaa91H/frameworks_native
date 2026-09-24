@@ -2346,6 +2346,10 @@ int Surface::connect(int api, const sp<SurfaceListener>& listener, bool reportBu
     if (listener != nullptr) {
         mListenerProxy = sp<ProducerListenerProxy>::make(wp<Surface>::fromExisting(this), listener,
                                                          needsAcquiredNotify, needsDroppedNotify);
+    } else {
+        // Do not carry callbacks from a previous connection into a reconnect
+        // that explicitly has no listener.
+        mListenerProxy = nullptr;
     }
 
     int err =
@@ -2377,7 +2381,7 @@ int Surface::connect(int api, const sp<SurfaceListener>& listener, bool reportBu
         {
             std::scoped_lock _dl(mDebugMutex);
             mDebugName = mGraphicBufferProducer->getConsumerName();
-            mGraphicBufferProducer->getUniqueId(&mId);
+            idErr = mGraphicBufferProducer->getUniqueId(&mId);
         }
         SURF_LOGE_IF(idErr != NO_ERROR, "Unable to get ID from IGBP: %d", idErr);
         mIsConnected = true;
@@ -2429,6 +2433,7 @@ int Surface::disconnect(int api, IGraphicBufferProducer::DisconnectMode mode) {
     mMaxBufferCount = NUM_BUFFER_SLOTS;
     mLastReplacedFrameId = {};
     mAutoGenerationUpdate = true;
+    mListenerProxy = nullptr;
 
     if (api == NATIVE_WINDOW_API_CPU) {
         mConnectedToCpu = false;

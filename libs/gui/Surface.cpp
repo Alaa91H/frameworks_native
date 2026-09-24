@@ -2433,6 +2433,7 @@ int Surface::disconnect(int api, IGraphicBufferProducer::DisconnectMode mode) {
     mMaxBufferCount = NUM_BUFFER_SLOTS;
     mLastReplacedFrameId = {};
     mAutoGenerationUpdate = true;
+    mListenerProxy = nullptr;
 
     if (api == NATIVE_WINDOW_API_CPU) {
         mConnectedToCpu = false;

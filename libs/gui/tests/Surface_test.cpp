@@ -355,6 +355,40 @@ TEST_F(SurfaceTest, SettingGenerationNumber) {
     ASSERT_EQ(1U, graphicBuffer->getGenerationNumber());
 }
 
+TEST_F(SurfaceTest, ReconnectWithoutListenerDropsPreviousCallbacks) {
+    sp<IGraphicBufferProducer> producer;
+    sp<IGraphicBufferConsumer> consumer;
+    BufferQueue::createBufferQueue(&producer, &consumer);
+
+    sp<MockConsumer> mockConsumer(new MockConsumer);
+    ASSERT_EQ(NO_ERROR, consumer->consumerConnect(mockConsumer, false));
+
+    sp<Surface> surface = sp<Surface>::make(producer);
+    sp<FakeSurfaceListener> listener = sp<FakeSurfaceListener>::make(true);
+
+    ASSERT_EQ(NO_ERROR,
+              surface->connect(NATIVE_WINDOW_API_CPU, listener,
+                               /*reportBufferRemoval*/ false));
+    ASSERT_EQ(NO_ERROR, surface->disconnect(NATIVE_WINDOW_API_CPU));
+
+    // A reconnect with no listener must not retain callbacks from the
+    // previous connection.
+    ASSERT_EQ(NO_ERROR, surface->connect(NATIVE_WINDOW_API_CPU, nullptr));
+
+    sp<GraphicBuffer> buffer;
+    sp<Fence> fence;
+    ASSERT_EQ(NO_ERROR, surface->dequeueBuffer(&buffer, &fence));
+    ASSERT_EQ(NO_ERROR, surface->queueBuffer(buffer, fence));
+
+    BufferItem item;
+    ASSERT_EQ(NO_ERROR, consumer->acquireBuffer(&item, 0));
+    ASSERT_EQ(NO_ERROR,
+              consumer->releaseBuffer(item.mSlot, item.mFrameNumber, Fence::NO_FENCE));
+
+    EXPECT_EQ(0, listener->getReleaseNotifyCount());
+    ASSERT_EQ(NO_ERROR, surface->disconnect(NATIVE_WINDOW_API_CPU));
+}
+
 TEST_F(SurfaceTest, GenerationNumberSurvivesReconnect) {
     auto [consumer, surface] = BufferItemConsumer::create(GRALLOC_USAGE_SW_READ_OFTEN);
 

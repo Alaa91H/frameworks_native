@@ -2341,20 +2341,20 @@ int Surface::connect(int api, const sp<SurfaceListener>& listener, bool reportBu
     SURF_LOGV("Surface::connect");
     Mutex::Autolock lock(mMutex);
     IGraphicBufferProducer::QueueBufferOutput output;
-    mReportRemovedBuffers = reportBufferRemoval;
-
+    sp<ProducerListenerProxy> listenerProxy;
     if (listener != nullptr) {
-        mListenerProxy = sp<ProducerListenerProxy>::make(wp<Surface>::fromExisting(this), listener,
-                                                         needsAcquiredNotify, needsDroppedNotify);
-    } else {
-        // Do not carry callbacks from a previous connection into a reconnect
-        // that explicitly has no listener.
-        mListenerProxy = nullptr;
+        listenerProxy = sp<ProducerListenerProxy>::make(wp<Surface>::fromExisting(this), listener,
+                                                        needsAcquiredNotify, needsDroppedNotify);
     }
 
     int err =
-            mGraphicBufferProducer->connect(mListenerProxy, api, mProducerControlledByApp, &output);
+            mGraphicBufferProducer->connect(listenerProxy, api, mProducerControlledByApp, &output);
     if (err == NO_ERROR) {
+        // Only commit connection-scoped state after IGBP accepted the connection.
+        // A failed reconnect must not overwrite the listener or buffer-removal
+        // behavior of an already active connection.
+        mListenerProxy = listenerProxy;
+        mReportRemovedBuffers = reportBufferRemoval;
         mDefaultWidth = output.width;
         mDefaultHeight = output.height;
         mNextFrameNumber = output.nextFrameNumber;

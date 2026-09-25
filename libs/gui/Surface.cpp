@@ -2341,16 +2341,20 @@ int Surface::connect(int api, const sp<SurfaceListener>& listener, bool reportBu
     SURF_LOGV("Surface::connect");
     Mutex::Autolock lock(mMutex);
     IGraphicBufferProducer::QueueBufferOutput output;
-    mReportRemovedBuffers = reportBufferRemoval;
-
+    sp<ProducerListenerProxy> listenerProxy;
     if (listener != nullptr) {
-        mListenerProxy = sp<ProducerListenerProxy>::make(wp<Surface>::fromExisting(this), listener,
-                                                         needsAcquiredNotify, needsDroppedNotify);
+        listenerProxy = sp<ProducerListenerProxy>::make(wp<Surface>::fromExisting(this), listener,
+                                                        needsAcquiredNotify, needsDroppedNotify);
     }
 
     int err =
-            mGraphicBufferProducer->connect(mListenerProxy, api, mProducerControlledByApp, &output);
+            mGraphicBufferProducer->connect(listenerProxy, api, mProducerControlledByApp, &output);
     if (err == NO_ERROR) {
+        // Only commit connection-scoped state after IGBP accepted the connection.
+        // A failed reconnect must not overwrite the listener or buffer-removal
+        // behavior of an already active connection.
+        mListenerProxy = listenerProxy;
+        mReportRemovedBuffers = reportBufferRemoval;
         mDefaultWidth = output.width;
         mDefaultHeight = output.height;
         mNextFrameNumber = output.nextFrameNumber;
@@ -2377,7 +2381,7 @@ int Surface::connect(int api, const sp<SurfaceListener>& listener, bool reportBu
         {
             std::scoped_lock _dl(mDebugMutex);
             mDebugName = mGraphicBufferProducer->getConsumerName();
-            mGraphicBufferProducer->getUniqueId(&mId);
+            idErr = mGraphicBufferProducer->getUniqueId(&mId);
         }
         SURF_LOGE_IF(idErr != NO_ERROR, "Unable to get ID from IGBP: %d", idErr);
         mIsConnected = true;
@@ -2429,6 +2433,7 @@ int Surface::disconnect(int api, IGraphicBufferProducer::DisconnectMode mode) {
     mMaxBufferCount = NUM_BUFFER_SLOTS;
     mLastReplacedFrameId = {};
     mAutoGenerationUpdate = true;
+    mListenerProxy = nullptr;
 
     if (api == NATIVE_WINDOW_API_CPU) {
         mConnectedToCpu = false;

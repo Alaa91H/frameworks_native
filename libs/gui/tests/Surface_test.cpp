@@ -355,6 +355,53 @@ TEST_F(SurfaceTest, SettingGenerationNumber) {
     ASSERT_EQ(1U, graphicBuffer->getGenerationNumber());
 }
 
+TEST_F(SurfaceTest, FailedReconnectPreservesConnectionState) {
+    sp<IGraphicBufferProducer> producer;
+    sp<IGraphicBufferConsumer> consumer;
+    BufferQueue::createBufferQueue(&producer, &consumer);
+
+    sp<MockConsumer> mockConsumer(new MockConsumer);
+    ASSERT_EQ(NO_ERROR, consumer->consumerConnect(mockConsumer, false));
+
+    sp<Surface> surface = sp<Surface>::make(producer);
+    sp<FakeSurfaceListener> listener = sp<FakeSurfaceListener>::make(true);
+    sp<FakeSurfaceListener> replacementListener = sp<FakeSurfaceListener>::make(true);
+
+    ASSERT_EQ(NO_ERROR,
+              surface->connect(NATIVE_WINDOW_API_CPU, listener,
+                               /*reportBufferRemoval*/ true));
+
+    // BufferQueue rejects a second producer connection while the first one is
+    // active. Surface-side state from the live connection must survive that
+    // failed reconnect attempt.
+    ASSERT_EQ(BAD_VALUE,
+              surface->connect(NATIVE_WINDOW_API_CPU, replacementListener,
+                               /*reportBufferRemoval*/ false));
+
+    constexpr int kBufferCount = 2;
+    ASSERT_EQ(NO_ERROR, surface->setBufferCount(kBufferCount));
+
+    sp<GraphicBuffer> buffers[kBufferCount];
+    sp<Fence> fences[kBufferCount];
+    for (int i = 0; i < kBufferCount; i++) {
+        ASSERT_EQ(NO_ERROR, surface->dequeueBuffer(&buffers[i], &fences[i]));
+    }
+    for (int i = 0; i < kBufferCount; i++) {
+        ASSERT_EQ(NO_ERROR, surface->cancelBuffer(buffers[i], fences[i]));
+    }
+
+    sp<GraphicBuffer> detachedBuffer;
+    sp<Fence> detachedFence;
+    ASSERT_EQ(NO_ERROR, surface->detachNextBuffer(&detachedBuffer, &detachedFence));
+
+    std::vector<sp<GraphicBuffer>> removedBuffers;
+    ASSERT_EQ(NO_ERROR, surface->getAndFlushRemovedBuffers(&removedBuffers));
+    ASSERT_EQ(1u, removedBuffers.size());
+    EXPECT_EQ(detachedBuffer->handle, removedBuffers[0]->handle);
+
+    ASSERT_EQ(NO_ERROR, surface->disconnect(NATIVE_WINDOW_API_CPU));
+}
+
 TEST_F(SurfaceTest, ReconnectWithoutListenerDropsPreviousCallbacks) {
     sp<IGraphicBufferProducer> producer;
     sp<IGraphicBufferConsumer> consumer;
